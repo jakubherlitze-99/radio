@@ -143,6 +143,15 @@ function rowHtml(st) {
   if (on && state.phase === 'playing') extra = ' · <b>▶ hraje</b>';
   else if (on && state.phase === 'tuning') extra = ' · <b>ladím…</b>';
   const kbps = st.bitrate ? ` · ${st.bitrate} kbps` : '';
+  if (state.editOrder && state.genre === 'fav') {
+    return `<div class="row edit" data-id="${esc(st.id)}">
+      <span class="handle" data-handle aria-label="Přetáhnout">≡</span>
+      ${logoHtml(st)}
+      <div class="t"><div class="n">${esc(st.name)}</div><div class="g">${esc(g)}</div></div>
+      <button class="mv" data-move="-1" aria-label="Posunout výš">▲</button>
+      <button class="mv" data-move="1" aria-label="Posunout níž">▼</button>
+    </div>`;
+  }
   return `<div class="row${on ? ' on' : ''}" data-id="${esc(st.id)}" role="button" tabindex="0">
     ${logoHtml(st)}
     <div class="t"><div class="n">${esc(st.name)}</div><div class="g">${esc(g)}${kbps}${extra}</div></div>
@@ -153,6 +162,10 @@ function rowHtml(st) {
 // stanice v aktuálním žánru / hledání – v pořadí, jak jsou v seznamu
 function visibleStations() {
   const q = normalize(state.q);
+  if (state.genre === 'fav') {
+    const byId = new Map(state.stations.map((s) => [s.id, s]));
+    return state.favs.map((id) => byId.get(id)).filter((s) => s && (!q || normalize(s.name).includes(q)));
+  }
   const vis = state.stations.filter((s) => {
     if (state.genre === 'fav' && !state.favs.includes(s.id)) return false;
     if (state.genre !== 'all' && state.genre !== 'fav' && s.genre !== state.genre && !(s.also || []).includes(state.genre)) return false;
@@ -180,7 +193,7 @@ function renderList() {
     html += `<p class="empty">${state.genre === 'fav' ? 'Zatím žádné oblíbené.<br>Klepni na ☆ u stanice.' : 'Nic nenalezeno.'}</p>`;
   } else {
     const cur = vis.filter((s) => s.curated), rest = vis.filter((s) => !s.curated);
-    if (cur.length && rest.length && !q) {
+    if (cur.length && rest.length && !q && state.genre !== 'fav') {
       html += `<div class="section">Výběr</div>` + cur.map(rowHtml).join('') +
               `<div class="section">Další stanice</div>` + rest.map(rowHtml).join('');
     } else html += vis.map(rowHtml).join('');
@@ -218,7 +231,10 @@ function favLink() {
   return location.origin + location.pathname + '#' + FAV_PREFIX + state.favs.map(encodeURIComponent).join(',');
 }
 function favSyncPanel() {
-  return `<div class="hint sync">
+  const edit = state.favs.length > 1 && !state.q
+    ? `<button class="sbtn order${state.editOrder ? ' on' : ''}" data-edit-order>${state.editOrder ? '✓ Hotovo' : '↕ Upravit pořadí'}</button>` : '';
+  if (state.editOrder) return `<div class="hint sync">${edit}<small>Přetáhni stanici za ≡, nebo ji posouvej šipkami ▲ ▼.</small></div>`;
+  return `<div class="hint sync">${edit}
     <b>Přenos oblíbených</b> do jiného prohlížeče nebo telefonu:
     <div class="syncBtns">
       <button class="sbtn" data-fav-export ${state.favs.length ? '' : 'disabled'}>Zkopírovat odkaz</button>
@@ -393,6 +409,7 @@ $('chips').addEventListener('click', (e) => {
   const b = e.target.closest('[data-genre]');
   if (!b) return;
   state.genre = b.dataset.genre;
+  state.editOrder = false;
   store.set('genre', state.genre);
   renderChips(); renderList();
   window.scrollTo({ top: 0 });
@@ -401,6 +418,18 @@ $('list').addEventListener('click', (e) => {
   if (e.target.closest('[data-close-hint]')) { store.set('hint-closed', true); return renderList(); }
   if (e.target.closest('[data-fav-export]')) return exportFavs();
   if (e.target.closest('[data-fav-import]')) return askImport();
+  if (e.target.closest('[data-edit-order]')) { state.editOrder = !state.editOrder; return renderList(); }
+  const mv = e.target.closest('[data-move]');
+  if (mv) {
+    const id = mv.closest('.row').dataset.id, i = state.favs.indexOf(id), j = i + Number(mv.dataset.move);
+    if (i < 0 || j < 0 || j >= state.favs.length) return;
+    [state.favs[i], state.favs[j]] = [state.favs[j], state.favs[i]];
+    saveFavs(); renderList();
+    const row = $('list').querySelector(`.row[data-id="${CSS.escape(id)}"]`);
+    if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return;
+  }
+  if (state.editOrder && state.genre === 'fav') return;
   const f = e.target.closest('[data-fav]');
   if (f) {
     const id = f.dataset.fav;
@@ -415,6 +444,41 @@ $('list').addEventListener('click', (e) => {
     if (st) play(st);
   }
 });
+// přetahování oblíbených za úchyt ≡ (myš i prst)
+function saveFavs() { store.set('favorites-v1', state.favs); }
+let drag = null;
+$('list').addEventListener('pointerdown', (e) => {
+  const h = e.target.closest('[data-handle]');
+  if (!h) return;
+  e.preventDefault();
+  drag = { row: h.closest('.row') };
+  drag.row.classList.add('dragging');
+  try { h.setPointerCapture(e.pointerId); } catch {}
+});
+$('list').addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  e.preventDefault();
+  const rows = [...$('list').querySelectorAll('.row')];
+  const di = rows.indexOf(drag.row);
+  for (let ri = 0; ri < rows.length; ri++) {
+    if (ri === di) continue;
+    const b = rows[ri].getBoundingClientRect(), mid = b.top + b.height / 2;
+    if (ri < di && e.clientY < mid) { rows[ri].before(drag.row); break; }
+    if (ri > di && e.clientY > mid) rows[ri].after(drag.row);
+  }
+  // u okraje obrazovky posouvat seznam
+  if (e.clientY < 120) window.scrollBy(0, -12); else if (e.clientY > innerHeight - 140) window.scrollBy(0, 12);
+});
+const endDrag = () => {
+  if (!drag) return;
+  drag.row.classList.remove('dragging');
+  state.favs = [...$('list').querySelectorAll('.row')].map((r) => r.dataset.id);
+  drag = null;
+  saveFavs(); renderList();
+};
+$('list').addEventListener('pointerup', endDrag);
+$('list').addEventListener('pointercancel', endDrag);
+
 $('q').addEventListener('input', (e) => { state.q = e.target.value; renderList(); });
 $('pBtn').addEventListener('click', toggle);
 
