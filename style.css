@@ -67,4 +67,10 @@ h1 { margin: 0 20px; font-size: 30px; font-weight: 800; letter-spacing: -0.5px; 
 .hint { margin: 0 16px 12px; padding: 12px 14px; border-radius: 14px; background: #1b2438; color: var(--sub);
   font-size: 14px; line-height: 1.45; border: 1px solid var(--line); }
 .hint b { color: var(--text); }
-.hint button { float: right; color: var(--sub); font-size: 18px; margin: -4px -4px 0 8px; }
+.hint [data-close-hint] { float: right; color: var(--sub); font-size: 18px; margin: -4px -4px 0 8px; }
+.hint.sync { color: var(--text); }
+.syncBtns { display: flex; gap: 8px; margin: 10px 0 4px; }
+.sbtn { flex: 1; padding: 10px; border-radius: 12px; background: var(--accent); color: var(--bg); font-weight: 700; font-size: 14px; }
+.sbtn[data-fav-import] { background: var(--card); color: var(--text); border: 1px solid var(--line); }
+.sbtn:disabled { opacity: .4; }
+.hint small { color: var(--sub); display: block; margin-top: 4px; overflow-wrap: anywhere; }

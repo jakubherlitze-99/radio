@@ -1,5 +1,5 @@
 // Offline cache jen pro samotnou aplikaci (streamy ani katalog se necachují).
-const CACHE = 'ceska-radia-v7';
+const CACHE = 'ceska-radia-v8';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'stations.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 

@@ -175,7 +175,7 @@ function step(dir) {
 function renderList() {
   const q = normalize(state.q);
   const vis = visibleStations();
-  let html = installHint();
+  let html = installHint() + (state.genre === 'fav' ? favSyncPanel() : '');
   if (!vis.length) {
     html += `<p class="empty">${state.genre === 'fav' ? 'Zatím žádné oblíbené.<br>Klepni na ☆ u stanice.' : 'Nic nenalezeno.'}</p>`;
   } else {
@@ -212,6 +212,48 @@ const renderAll = () => { renderChips(); renderList(); renderSubtitle(); renderP
 const setPhase = (p, err = '') => { state.phase = p; state.error = err; renderList(); renderPlayer(); updateMediaSession(); };
 
 // ---------- přidání na plochu (iOS) ----------
+// ---------- přenos oblíbených mezi prohlížeči / zařízeními ----------
+const FAV_PREFIX = 'oblibene=';
+function favLink() {
+  return location.origin + location.pathname + '#' + FAV_PREFIX + state.favs.map(encodeURIComponent).join(',');
+}
+function favSyncPanel() {
+  return `<div class="hint sync">
+    <b>Přenos oblíbených</b> do jiného prohlížeče nebo telefonu:
+    <div class="syncBtns">
+      <button class="sbtn" data-fav-export ${state.favs.length ? '' : 'disabled'}>Zkopírovat odkaz</button>
+      <button class="sbtn" data-fav-import>Vložit odkaz</button>
+    </div>
+    <small id="syncMsg">${esc(state.syncMsg || '')}</small></div>`;
+}
+function syncMsg(text) { state.syncMsg = text; const el = $('syncMsg'); if (el) el.textContent = text; }
+function importFavs(text) {
+  const m = String(text || '').match(/oblibene=([^\s]*)/);
+  const raw = m ? m[1] : String(text || '').trim();
+  const ids = raw.split(',').map((x) => { try { return decodeURIComponent(x.trim()); } catch { return ''; } }).filter(Boolean);
+  if (!ids.length) return 0;
+  const before = state.favs.length;
+  state.favs = [...new Set([...state.favs, ...ids])];
+  store.set('favorites-v1', state.favs);
+  return state.favs.length - before;
+}
+async function exportFavs() {
+  const link = favLink();
+  try {
+    if (navigator.share) { await navigator.share({ title: 'Moje oblíbená rádia', url: link }); return syncMsg('Odesláno.'); }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(link); syncMsg('Odkaz zkopírován. Otevři ho v druhém prohlížeči, nebo ho tam vlož tlačítkem „Vložit odkaz“.'); }
+  catch { syncMsg('Kopírování selhalo. Odkaz: ' + link); }
+}
+async function askImport() {
+  let text = '';
+  try { text = await navigator.clipboard.readText(); } catch {}
+  if (!/oblibene=/.test(text)) text = window.prompt('Vlož odkaz s oblíbenými:', '') || '';
+  const n = importFavs(text);
+  renderChips(); renderList();
+  syncMsg(n ? `Přidáno ${n} oblíbených stanic.` : 'V odkazu nebyly žádné nové stanice.');
+}
+
 function installHint() {
   const standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -357,6 +399,8 @@ $('chips').addEventListener('click', (e) => {
 });
 $('list').addEventListener('click', (e) => {
   if (e.target.closest('[data-close-hint]')) { store.set('hint-closed', true); return renderList(); }
+  if (e.target.closest('[data-fav-export]')) return exportFavs();
+  if (e.target.closest('[data-fav-import]')) return askImport();
   const f = e.target.closest('[data-fav]');
   if (f) {
     const id = f.dataset.fav;
@@ -377,6 +421,17 @@ $('pBtn').addEventListener('click', toggle);
 // ---------- start ----------
 (async () => {
   if (state.current) state.phase = 'idle';
+  // požádat systém, aby data aplikace (oblíbené) nemazal
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
+  // otevřeno z odkazu „#oblibene=…“ → importovat a ukázat oblíbené
+  if (location.hash.includes(FAV_PREFIX)) {
+    let h = location.hash; try { h = decodeURIComponent(h); } catch {}
+    const n = importFavs(h);
+    history.replaceState(null, '', location.pathname);
+    state.genre = 'fav';
+    store.set('genre', 'fav');
+    syncMsg(n ? `Přidáno ${n} oblíbených stanic.` : 'Oblíbené už tu máš.');
+  }
   const res = await loadCatalog(false);
   state.stations = res.stations;
   state.offline = res.offline;
