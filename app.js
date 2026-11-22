@@ -406,7 +406,7 @@ function reconnectOrFail(sid, reason) {
 async function play(st) {
   clearTimers();
   const sid = ++session;
-  retries = 0; userPaused = false;
+  retries = 0; userPaused = false; pausedAt = 0;
   state.current = st;
   store.set('last-station-v1', st);
   setPhase('tuning');
@@ -428,6 +428,42 @@ async function play(st) {
   if (target.uuid) apiGet('/json/url/' + target.uuid).catch(() => {});
 }
 
+// pauza bez zahození streamu – iOS pak dovolí ze zamčené obrazovky pokračovat
+let pausedAt = 0;
+function softPause() {
+  userPaused = true;
+  clearTimers();
+  pausedAt = Date.now();
+  audio.pause();
+  setPhase('paused');
+}
+
+// ▶ ze zamčené obrazovky / sluchátek: iOS na pozadí nedovolí otevřít nový stream,
+// ale dovolí pokračovat ve stávajícím přehrávači → nejdřív play(), pak případně reload stejné adresy
+function resumeFromRemote() {
+  if (!state.current) return;
+  if (!audio.getAttribute('src')) {
+    diag('▶ ze zamčené obrazovky – přehrávač je prázdný, spouštím stanici');
+    return play(state.stations.find((s) => s.id === state.current.id) || state.current);
+  }
+  userPaused = false;
+  const sid = session;
+  const long = pausedAt && Date.now() - pausedAt > 30000;
+  const broken = state.phase === 'tuning' || state.phase === 'error' || audio.error || audio.ended;
+  const reload = long || broken;
+  diag(`▶ ze zamčené obrazovky – ${reload ? 'znovu načítám stávající stream' : 'pokračuji ve stávajícím streamu'}`);
+  if (reload) audio.load();   // stejná adresa, stejný přehrávač (nový stream by iOS na pozadí nepustil)
+  setPhase('tuning', 'Navazuji…');
+  audio.play().catch((e) => diag(`pokračování odmítnuto: ${e && e.name}`));
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => {
+    if (sid !== session || state.phase === 'playing' || userPaused) return;
+    diag('pokračování nenaběhlo – načítám stejnou adresu znovu');
+    audio.load();
+    audio.play().catch((e) => diag(`opětovné načtení odmítnuto: ${e && e.name}`));
+  }, 5000);
+}
+
 function stop() {
   session++;
   userPaused = true;
@@ -440,7 +476,7 @@ function stop() {
 
 function toggle() {
   if (!state.current) return;
-  if (state.phase === 'playing' || state.phase === 'tuning') stop();
+  if (state.phase === 'playing' || state.phase === 'tuning') softPause();
   else play(state.stations.find((s) => s.id === state.current.id) || state.current);
 }
 
@@ -545,12 +581,8 @@ function updateMediaSession() {
 if ('mediaSession' in navigator) {
   try {
     // ▶ na zamčené obrazovce = vždy nové připojení (klepnutí iOS povolí rozjet i zamrzlý stream)
-    navigator.mediaSession.setActionHandler('play', () => {
-      if (!state.current) return;
-      diag('▶ ze zamčené obrazovky – nové připojení');
-      play(state.stations.find((s) => s.id === state.current.id) || state.current);
-    });
-    navigator.mediaSession.setActionHandler('pause', () => stop());
+    navigator.mediaSession.setActionHandler('play', resumeFromRemote);
+    navigator.mediaSession.setActionHandler('pause', () => { diag('⏸ ze zamčené obrazovky'); softPause(); });
     navigator.mediaSession.setActionHandler('stop', () => stop());
   } catch {}
   applyTrackHandlers();
