@@ -2,6 +2,7 @@
 // Streamy se nehardcodují (adresy se mění) – aplikace je dohledá
 // v otevřeném katalogu Radio Browser podle `match` (normalizovaný název:
 // malá písmena, bez diakritiky). Stačí, aby název obsahoval jednu z variant.
+// `stream` = ověřená https adresa (má přednost před katalogem).
 
 export const GENRES = [
   { id: 'all', label: 'Vše', icon: '📻', color: '#F5A623' },
@@ -19,9 +20,9 @@ export const GENRES = [
 
 export const CURATED = [
   // Zprávy & mluvené slovo
-  { id: 'cro-radiozurnal', name: 'ČRo Radiožurnál', genre: 'news', match: ['radiozurnal'], exclude: ['sport'] },
-  { id: 'cro-plus', name: 'ČRo Plus', genre: 'news', match: ['cro plus', 'rozhlas plus'] },
-  { id: 'cro-dvojka', name: 'ČRo Dvojka', genre: 'news', match: ['dvojka'] },
+  { id: 'cro-radiozurnal', name: 'ČRo Radiožurnál', genre: 'news', stream: 'https://rozhlas.stream/radiozurnal_mp3_128.mp3', match: ['radiozurnal'], exclude: ['sport'] },
+  { id: 'cro-plus', name: 'ČRo Plus', genre: 'news', stream: 'https://rozhlas.stream/plus_mp3_128.mp3', match: ['cro plus', 'rozhlas plus'] },
+  { id: 'cro-dvojka', name: 'ČRo Dvojka', genre: 'news', stream: 'https://rozhlas.stream/dvojka_mp3_128.mp3', match: ['dvojka'] },
   { id: 'cro-rzsport', name: 'ČRo Radiožurnál Sport', genre: 'news', match: ['radiozurnal sport'] },
 
   // Pop & hity
@@ -31,41 +32,40 @@ export const CURATED = [
   { id: 'kiss', name: 'Kiss', genre: 'pop', match: ['kiss'] },
   { id: 'hitradio', name: 'Hitrádio', genre: 'pop', match: ['hitradio'] },
   { id: 'fajn', name: 'Fajn Rádio', genre: 'pop', match: ['fajn'] },
-  { id: 'krokodyl', name: 'Rádio Krokodýl', genre: 'pop', match: ['krokodyl'] },
+  { id: 'krokodyl', name: 'Rádio Krokodýl', genre: 'pop', stream: 'https://icecast-u2.play.cz/krokodyl128.mp3', match: ['krokodyl'] },
   { id: 'cas', name: 'Rádio Čas', genre: 'pop', match: ['radio cas'], exclude: ['rock'] },
 
   // Rock & alternativa
   { id: 'rockradio', name: 'Rock Radio', genre: 'rock', match: ['rock radio'] },
-  { id: 'beat', name: 'Radio Beat', genre: 'rock', match: ['radio beat'] },
+  { id: 'beat', name: 'Radio Beat', genre: 'rock', stream: 'https://icecast2.play.cz/beat128aac', match: ['radio beat'] },
   { id: 'radio1', name: 'Radio 1', genre: 'rock', match: ['radio 1'], exclude: ['radio 10', 'radio 11'] },
-  { id: 'wave', name: 'ČRo Radio Wave', genre: 'rock', match: ['radio wave'] },
+  { id: 'wave', name: 'ČRo Radio Wave', genre: 'rock', stream: 'https://rozhlas.stream/wave_mp3_128.mp3', match: ['radio wave', 'cro wave'] },
   { id: 'cas-rock', name: 'Rádio Čas Rock', genre: 'rock', match: ['cas rock'] },
 
   // Dance & elektro
   { id: 'dance', name: 'Dance Radio', genre: 'dance', match: ['dance radio'] },
-  { id: 'spin', name: 'Rádio Spin', genre: 'dance', match: ['spin'] },
+  { id: 'spin', name: 'Rádio Spin', genre: 'dance', stream: 'https://icecast4.play.cz/spin128.mp3', match: ['spin'] },
 
   // Oldies & retro
   { id: 'blanik', name: 'Rádio Blaník', genre: 'oldies', match: ['blanik'] },
   { id: 'oldies', name: 'Oldies Rádio', genre: 'oldies', match: ['oldies radio', 'oldiesradio'] },
-  { id: 'cro-pohoda', name: 'ČRo Pohoda', genre: 'oldies', match: ['pohoda'] },
+  { id: 'cro-pohoda', name: 'ČRo Pohoda', genre: 'oldies', stream: 'https://rozhlas.stream/pohoda.mp3', match: ['pohoda'] },
 
   // Klasika & jazz
-  { id: 'cro-vltava', name: 'ČRo Vltava', genre: 'classic', match: ['vltava'] },
+  { id: 'cro-vltava', name: 'ČRo Vltava', genre: 'classic', stream: 'https://rozhlas.stream/vltava_mp3_128.mp3', match: ['vltava'] },
   { id: 'cro-ddur', name: 'ČRo D-dur', genre: 'classic', match: ['d dur'] },
-  { id: 'cro-jazz', name: 'ČRo Jazz', genre: 'classic', match: ['cro jazz', 'rozhlas jazz'] },
-  { id: 'classic-praha', name: 'Classic Praha', genre: 'classic', match: ['classic praha', 'classic fm'] },
+  { id: 'cro-jazz', name: 'ČRo Jazz', genre: 'classic', stream: 'https://rozhlas.stream/jazz.mp3', match: ['cro jazz', 'rozhlas jazz'] },
+  { id: 'classic-praha', name: 'Classic Praha', genre: 'classic', stream: 'https://icecast8.play.cz/classic128.mp3', match: ['classic praha', 'classic fm'] },
 
   // Country, folk & dechovka
-  { id: 'country', name: 'Country Radio', genre: 'folk', match: ['country radio'] },
-  { id: 'dechovka', name: 'Rádio Dechovka', genre: 'folk', match: ['dechovka'] },
+  { id: 'country', name: 'Country Radio', genre: 'folk', stream: 'https://icecast4.play.cz/country128.mp3', match: ['country radio'] },
 
   // Pro děti
-  { id: 'cro-junior', name: 'Rádio Junior', genre: 'kids', match: ['junior'] },
+  { id: 'cro-junior', name: 'Rádio Junior', genre: 'kids', stream: 'https://rozhlas.stream/radio_junior.mp3', match: ['junior'] },
 
   // Duchovní
-  { id: 'proglas', name: 'Rádio Proglas', genre: 'spirit', match: ['proglas'] },
-  { id: 'radio7', name: 'Rádio 7', genre: 'spirit', match: ['radio 7'], exclude: ['radio 70'] },
+  { id: 'proglas', name: 'Rádio Proglas', genre: 'spirit', stream: 'https://icecast2.play.cz/proglas128', match: ['proglas'] },
+  { id: 'radio7', name: 'Rádio 7', genre: 'spirit', stream: 'https://icecast8.play.cz/radio7-128.mp3', match: ['radio 7'], exclude: ['radio 70'] },
 ];
 
 // Mapování tagů z katalogu na žánry (pro stanice mimo kurátorský výběr).

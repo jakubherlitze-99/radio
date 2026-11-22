@@ -33,11 +33,13 @@ async function apiGet(path) {
 
 // Stránka běží přes https → přehrát jde jen https stream.
 const httpsUrl = (s) => [s.url_resolved, s.url].find((u) => u && u.startsWith('https://')) || null;
+// iPhone neumí spolehlivě Ogg/FLAC → takové streamy vynecháme
+const playable = (s) => { const u = httpsUrl(s); return u && !/\.(ogg|oga|opus|flac)(\?|$)/i.test(u) ? u : null; };
 const hasWord = (name, phrase) => (' ' + name + ' ').includes(' ' + phrase + ' ');
 
-function pickBest(raw, item) {
+function pickBest(raw, item, needUrl = true) {
   const hits = raw.filter((s) => {
-    if (!httpsUrl(s)) return false;
+    if (needUrl && !playable(s)) return false;
     const n = normalize(s.name);
     if (!item.match.some((m) => hasWord(n, normalize(m)))) return false;
     if (item.exclude && item.exclude.some((x) => hasWord(n, normalize(x)))) return false;
@@ -49,7 +51,7 @@ function pickBest(raw, item) {
 
 const toStation = (s, extra = {}) => ({
   id: s.stationuuid, uuid: s.stationuuid, name: (s.name || '').trim(),
-  url: httpsUrl(s), logo: s.favicon && s.favicon.startsWith('https://') ? s.favicon : null,
+  url: playable(s), logo: s.favicon && s.favicon.startsWith('https://') ? s.favicon : null,
   bitrate: s.bitrate || 0, ...extra,
 });
 
@@ -73,15 +75,17 @@ async function loadCatalog(force) {
   }
   const used = new Set();
   const curated = CURATED.map((c) => {
-    const b = pickBest(raw, c);
+    const b = pickBest(raw, c, !c.stream);
     if (b) used.add(b.stationuuid);
-    return b ? toStation(b, { id: c.id, name: c.name, genre: c.genre, curated: true })
-             : { ...c, curated: true, url: null };
+    const st = b ? toStation(b, { id: c.id, name: c.name, genre: c.genre, curated: true })
+                 : { ...c, curated: true, url: null };
+    if (c.stream) { st.url = c.stream; st.bitrate = st.bitrate || 128; }
+    return st;
   });
   const seen = new Set(curated.map((c) => normalize(c.name)));
   const rest = [];
   for (const s of raw) {
-    if (used.has(s.stationuuid) || !httpsUrl(s)) continue;
+    if (used.has(s.stationuuid) || !playable(s)) continue;
     const k = normalize(s.name);
     if (!k || seen.has(k)) continue;
     seen.add(k);
@@ -92,7 +96,7 @@ async function loadCatalog(force) {
 
 async function searchStream(name) {
   const list = await apiGet('/json/stations/search?countrycode=CZ&hidebroken=true&order=clickcount&reverse=true&limit=10&name=' + encodeURIComponent(name));
-  const s = list.find(httpsUrl);
+  const s = list.find(playable);
   return s ? toStation(s) : null;
 }
 
