@@ -1,5 +1,5 @@
 // Offline cache jen pro samotnou aplikaci (streamy ani katalog se necachují).
-const CACHE = 'ceska-radia-v2';
+const CACHE = 'ceska-radia-v3';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'stations.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
@@ -15,7 +15,7 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   // network-first, aby se nové verze projevily hned; offline z cache
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then((r) => { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); return r; })
       .catch(() => caches.match(e.request).then((r) => r || caches.match('index.html')))
   );
