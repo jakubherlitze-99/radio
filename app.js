@@ -224,6 +224,13 @@ async function play(st) {
   try {
     await audio.play();
   } catch (e) {
+    // AbortError = přehrávání přerušilo přepnutí stanice; výsledek ohlásí události / časovač
+    if (e && e.name === 'AbortError') {
+      tuneTimer = setTimeout(() => {
+        if (state.phase === 'tuning' && state.current === st) { audio.pause(); setPhase('error', 'Stanice neodpovídá.'); }
+      }, 15000);
+      return;
+    }
     if (state.current === st) setPhase('error', 'Stanici nelze přehrát.');
     return;
   }
