@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Česká rádia",
+    "slug": "ceska-radia",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0E1320",
+    "splash": { "backgroundColor": "#0E1320", "resizeMode": "contain", "image": "./assets/splash-icon.png" },
+    "ios": {
+      "bundleIdentifier": "cz.kuba.ceskaradia",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": { "NSAllowsArbitraryLoadsForMedia": true, "NSAllowsArbitraryLoads": true }
+      }
+    },
+    "android": {
+      "package": "cz.kuba.ceskaradia",
+      "adaptiveIcon": { "foregroundImage": "./assets/android-icon-foreground.png", "backgroundColor": "#0E1320" },
+      "edgeToEdgeEnabled": true
+    },
+    "web": { "favicon": "./assets/favicon.png" },
+    "plugins": [
+      ["expo-audio", { "microphonePermission": false, "recordAudioAndroid": false, "enableBackgroundPlayback": true }],
+      ["expo-build-properties", { "android": { "usesCleartextTraffic": true } }]
+    ]
+  }
+}

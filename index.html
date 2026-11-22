@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Česká rádia</title>
+  <meta name="theme-color" content="#0E1320">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Rádia">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/favicon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Česká rádia</h1>
+    <p id="subtitle" class="sub">Ladím katalog…</p>
+    <label class="search">
+      <span aria-hidden="true">⌕</span>
+      <input id="q" type="search" placeholder="Hledat stanici" autocomplete="off" autocorrect="off" spellcheck="false">
+    </label>
+    <nav id="chips" class="chips" aria-label="Žánry"></nav>
+  </header>
+
+  <main id="list" class="list" aria-live="polite">
+    <div class="spinner" aria-label="Načítám"></div>
+  </main>
+
+  <footer id="player" class="player" hidden>
+    <div id="pLogo" class="logo"></div>
+    <div class="pText">
+      <div id="pName" class="pName"></div>
+      <div class="pState"><span id="pDot" class="dot" hidden></span><span id="pStatus"></span></div>
+    </div>
+    <button id="pBtn" class="pBtn" aria-label="Přehrát">▶</button>
+  </footer>
+
+  <audio id="audio" preload="none" playsinline></audio>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
