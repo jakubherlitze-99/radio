@@ -440,7 +440,7 @@ function softPause() {
 
 // ▶ ze zamčené obrazovky / sluchátek: iOS na pozadí nedovolí otevřít nový stream,
 // ale dovolí pokračovat ve stávajícím přehrávači → nejdřív play(), pak případně reload stejné adresy
-function resumeFromRemote() {
+function resumeFromRemote(force = false) {
   if (!state.current) return;
   if (!audio.getAttribute('src')) {
     diag('▶ ze zamčené obrazovky – přehrávač je prázdný, spouštím stanici');
@@ -449,7 +449,8 @@ function resumeFromRemote() {
   userPaused = false;
   const sid = session;
   const long = pausedAt && Date.now() - pausedAt > 30000;
-  const broken = state.phase === 'tuning' || state.phase === 'error' || audio.error || audio.ended;
+  const broken = force === true || state.phase === 'tuning' || state.phase === 'error' || audio.error || audio.ended
+    || (!audio.paused && !reallyPlaying());
   const reload = long || broken;
   diag(`▶ ze zamčené obrazovky – ${reload ? 'znovu načítám stávající stream' : 'pokračuji ve stávajícím streamu'}`);
   if (reload) audio.load();   // stejná adresa, stejný přehrávač (nový stream by iOS na pozadí nepustil)
@@ -522,6 +523,13 @@ audio.addEventListener('error', () => {
   reconnectOrFail(session, `chyba přehrávače: ${err ? MEDIA_ERR[err.code] || err.code : '?'}`);
 });
 
+audio.addEventListener('timeupdate', () => {
+  if (audio.currentTime > lastTime + 0.2) { lastTime = audio.currentTime; lastProgress = Date.now(); }
+});
+// opravdu teď hraje zvuk? (iOS ukazuje ⏸ i u zaseknutého streamu)
+const reallyPlaying = () =>
+  !audio.paused && audio.readyState >= 3 && Date.now() - lastProgress < 3000;
+
 // hlídač: zvuk se tváří, že hraje, ale stream stojí (iOS to občas nehlásí)
 setInterval(() => {
   if (state.phase !== 'playing' || audio.paused) return;
@@ -581,8 +589,15 @@ function updateMediaSession() {
 if ('mediaSession' in navigator) {
   try {
     // ▶ na zamčené obrazovce = vždy nové připojení (klepnutí iOS povolí rozjet i zamrzlý stream)
-    navigator.mediaSession.setActionHandler('play', resumeFromRemote);
-    navigator.mediaSession.setActionHandler('pause', () => { diag('⏸ ze zamčené obrazovky'); softPause(); });
+    navigator.mediaSession.setActionHandler('play', () => resumeFromRemote(false));
+    navigator.mediaSession.setActionHandler('pause', () => {
+      if (state.current && !userPaused && !reallyPlaying()) {
+        diag('⏸ ze zamčené obrazovky, ale nic nehrálo → spouštím znovu');
+        return resumeFromRemote(true);
+      }
+      diag('⏸ ze zamčené obrazovky');
+      softPause();
+    });
     navigator.mediaSession.setActionHandler('stop', () => stop());
   } catch {}
   applyTrackHandlers();
