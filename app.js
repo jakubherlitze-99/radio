@@ -77,7 +77,7 @@ async function loadCatalog(force) {
   const curated = CURATED.map((c) => {
     const b = pickBest(raw, c, !c.stream);
     if (b) used.add(b.stationuuid);
-    const st = b ? toStation(b, { id: c.id, name: c.name, genre: c.genre, curated: true })
+    const st = b ? toStation(b, { id: c.id, name: c.name, genre: c.genre, also: c.also, curated: true })
                  : { ...c, curated: true, url: null };
     if (c.stream) { st.url = c.stream; st.bitrate = st.bitrate || 128; }
     return st;
@@ -125,7 +125,7 @@ function logoHtml(st) {
 // ---------- vykreslení ----------
 function renderChips() {
   const counts = { all: state.stations.length, fav: state.favs.length };
-  for (const s of state.stations) if (s.genre) counts[s.genre] = (counts[s.genre] || 0) + 1;
+  for (const s of state.stations) for (const g of [s.genre, ...(s.also || [])]) if (g) counts[g] = (counts[g] || 0) + 1;
   $('chips').innerHTML = GENRES.map((g) => {
     const n = counts[g.id] || 0;
     if (!n && g.id !== 'all' && g.id !== 'fav') return '';
@@ -154,7 +154,7 @@ function renderList() {
   const q = normalize(state.q);
   const vis = state.stations.filter((s) => {
     if (state.genre === 'fav' && !state.favs.includes(s.id)) return false;
-    if (state.genre !== 'all' && state.genre !== 'fav' && s.genre !== state.genre) return false;
+    if (state.genre !== 'all' && state.genre !== 'fav' && s.genre !== state.genre && !(s.also || []).includes(state.genre)) return false;
     if (q && !normalize(s.name).includes(q)) return false;
     return true;
   });
