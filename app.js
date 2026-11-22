@@ -519,6 +519,18 @@ document.addEventListener('visibilitychange', () => {
   }, 1500);
 });
 
+// Přepínání stanic z zamčené obrazovky. iOS u webových aplikací často trvá na tlačítkách ±10 s,
+// proto i ta přepínají stanice (⟲10 = předchozí, ⟳10 = další). Kde systém ukáže ⏮ ⏭, fungují stejně.
+function applyTrackHandlers() {
+  if (!('mediaSession' in navigator)) return;
+  const prev = () => { diag('⏮ přepnutí ze zamčené obrazovky'); step(-1); };
+  const next = () => { diag('⏭ přepnutí ze zamčené obrazovky'); step(1); };
+  for (const [action, fn] of [['previoustrack', prev], ['nexttrack', next],
+                              ['seekbackward', prev], ['seekforward', next], ['seekto', null]]) {
+    try { navigator.mediaSession.setActionHandler(action, fn); } catch {}
+  }
+}
+
 function updateMediaSession() {
   if (!('mediaSession' in navigator) || !state.current) return;
   const st = state.current;
@@ -526,6 +538,7 @@ function updateMediaSession() {
   if (st.logo) artwork.unshift({ src: st.logo, sizes: '256x256' });
   try {
     navigator.mediaSession.metadata = new MediaMetadata({ title: st.name, artist: 'Česká rádia', artwork });
+    applyTrackHandlers();
     navigator.mediaSession.playbackState = state.phase === 'playing' ? 'playing' : 'paused';
   } catch {}
 }
@@ -540,11 +553,7 @@ if ('mediaSession' in navigator) {
     navigator.mediaSession.setActionHandler('pause', () => stop());
     navigator.mediaSession.setActionHandler('stop', () => stop());
   } catch {}
-  // místo ±10 s ukázat na zamčené obrazovce předchozí / další stanici
-  for (const [action, fn] of [['previoustrack', () => step(-1)], ['nexttrack', () => step(1)],
-                              ['seekbackward', null], ['seekforward', null], ['seekto', null]]) {
-    try { navigator.mediaSession.setActionHandler(action, fn); } catch {}
-  }
+  applyTrackHandlers();
 }
 
 // ---------- události ----------
