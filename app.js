@@ -150,7 +150,8 @@ function rowHtml(st) {
   </div>`;
 }
 
-function renderList() {
+// stanice v aktuálním žánru / hledání – v pořadí, jak jsou v seznamu
+function visibleStations() {
   const q = normalize(state.q);
   const vis = state.stations.filter((s) => {
     if (state.genre === 'fav' && !state.favs.includes(s.id)) return false;
@@ -158,6 +159,22 @@ function renderList() {
     if (q && !normalize(s.name).includes(q)) return false;
     return true;
   });
+  return [...vis.filter((s) => s.curated), ...vis.filter((s) => !s.curated)];
+}
+
+// přepnutí na předchozí / další stanici (zamčená obrazovka, sluchátka, CarPlay)
+function step(dir) {
+  let list = visibleStations();
+  if (!list.length) list = state.stations;
+  if (!list.length) return;
+  const i = state.current ? list.findIndex((s) => s.id === state.current.id) : -1;
+  const next = list[(i + dir + list.length) % list.length];
+  play(next);
+}
+
+function renderList() {
+  const q = normalize(state.q);
+  const vis = visibleStations();
   let html = installHint();
   if (!vis.length) {
     html += `<p class="empty">${state.genre === 'fav' ? 'Zatím žádné oblíbené.<br>Klepni na ☆ u stanice.' : 'Nic nenalezeno.'}</p>`;
@@ -322,6 +339,11 @@ if ('mediaSession' in navigator) {
     navigator.mediaSession.setActionHandler('pause', () => stop());
     navigator.mediaSession.setActionHandler('stop', () => stop());
   } catch {}
+  // místo ±10 s ukázat na zamčené obrazovce předchozí / další stanici
+  for (const [action, fn] of [['previoustrack', () => step(-1)], ['nexttrack', () => step(1)],
+                              ['seekbackward', null], ['seekforward', null], ['seekto', null]]) {
+    try { navigator.mediaSession.setActionHandler(action, fn); } catch {}
+  }
 }
 
 // ---------- události ----------
