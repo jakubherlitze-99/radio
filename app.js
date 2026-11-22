@@ -188,7 +188,7 @@ function step(dir) {
 function renderList() {
   const q = normalize(state.q);
   const vis = visibleStations();
-  let html = installHint() + (state.genre === 'fav' ? favSyncPanel() : '');
+  let html = installHint() + (state.genre === 'fav' && state.editOrder ? editBar() : '');
   if (!vis.length) {
     html += `<p class="empty">${state.genre === 'fav' ? 'Zatím žádné oblíbené.<br>Klepni na ☆ u stanice.' : 'Nic nenalezeno.'}</p>`;
   } else {
@@ -230,18 +230,31 @@ const FAV_PREFIX = 'oblibene=';
 function favLink() {
   return location.origin + location.pathname + '#' + FAV_PREFIX + state.favs.map(encodeURIComponent).join(',');
 }
-function favSyncPanel() {
-  const edit = state.favs.length > 1 && !state.q
-    ? `<button class="sbtn order${state.editOrder ? ' on' : ''}" data-edit-order>${state.editOrder ? '✓ Hotovo' : '↕ Upravit pořadí'}</button>` : '';
-  if (state.editOrder) return `<div class="hint sync">${edit}<small>Přetáhni stanici za ≡, nebo ji posouvej šipkami ▲ ▼.</small></div>`;
-  return `<div class="hint sync">${edit}
-    <b>Přenos oblíbených</b> do jiného prohlížeče nebo telefonu:
+function editBar() {
+  return `<div class="hint sync"><button class="sbtn order on" data-edit-order>✓ Hotovo</button>
+    <small>Přetáhni stanici za ≡, nebo ji posouvej šipkami ▲ ▼.</small></div>`;
+}
+
+// ---------- nastavení (ozubené kolečko) ----------
+function renderSheet() {
+  const canOrder = state.favs.length > 1;
+  $('sheet').innerHTML = `<div class="sheetBox" role="dialog" aria-label="Nastavení">
+    <div class="sheetHead"><b>Nastavení</b><button class="x" data-close-sheet aria-label="Zavřít">✕</button></div>
+    <div class="sheetSec">Oblíbené</div>
+    <button class="sbtn order" data-edit-order ${canOrder ? '' : 'disabled'}>⇅ Upravit pořadí oblíbených</button>
+    <p class="sheetNote">Přenos oblíbených do jiného prohlížeče nebo telefonu:</p>
     <div class="syncBtns">
       <button class="sbtn" data-fav-export ${state.favs.length ? '' : 'disabled'}>Zkopírovat odkaz</button>
-      <button class="sbtn" data-fav-import>Vložit odkaz</button>
+      <button class="sbtn ghost" data-fav-import>Vložit odkaz</button>
     </div>
-    <small id="syncMsg">${esc(state.syncMsg || '')}</small></div>`;
+    <small id="syncMsg">${esc(state.syncMsg || '')}</small>
+    <div class="sheetSec">Stanice</div>
+    <button class="sbtn ghost wide" data-refresh>⟳ Obnovit seznam stanic</button>
+  </div>`;
 }
+function openSheet() { state.syncMsg = ''; renderSheet(); $('sheet').hidden = false; }
+function closeSheet() { $('sheet').hidden = true; }
+
 function syncMsg(text) { state.syncMsg = text; const el = $('syncMsg'); if (el) el.textContent = text; }
 function importFavs(text) {
   const m = String(text || '').match(/oblibene=([^\s]*)/);
@@ -416,9 +429,7 @@ $('chips').addEventListener('click', (e) => {
 });
 $('list').addEventListener('click', (e) => {
   if (e.target.closest('[data-close-hint]')) { store.set('hint-closed', true); return renderList(); }
-  if (e.target.closest('[data-fav-export]')) return exportFavs();
-  if (e.target.closest('[data-fav-import]')) return askImport();
-  if (e.target.closest('[data-edit-order]')) { state.editOrder = !state.editOrder; return renderList(); }
+  if (e.target.closest('[data-edit-order]')) { state.editOrder = false; return renderList(); }
   const mv = e.target.closest('[data-move]');
   if (mv) {
     const id = mv.closest('.row').dataset.id, i = state.favs.indexOf(id), j = i + Number(mv.dataset.move);
@@ -478,6 +489,27 @@ const endDrag = () => {
 };
 $('list').addEventListener('pointerup', endDrag);
 $('list').addEventListener('pointercancel', endDrag);
+
+$('gear').addEventListener('click', openSheet);
+$('sheet').addEventListener('click', async (e) => {
+  if (e.target === $('sheet') || e.target.closest('[data-close-sheet]')) return closeSheet();
+  if (e.target.closest('[data-fav-export]')) return exportFavs();
+  if (e.target.closest('[data-fav-import]')) { await askImport(); return renderSheet(); }
+  if (e.target.closest('[data-edit-order]')) {
+    closeSheet();
+    state.genre = 'fav'; state.editOrder = true; state.q = ''; $('q').value = '';
+    store.set('genre', 'fav');
+    renderChips(); renderList(); window.scrollTo({ top: 0 });
+    return;
+  }
+  if (e.target.closest('[data-refresh]')) {
+    syncMsg('Načítám katalog…');
+    const res = await loadCatalog(true);
+    state.stations = res.stations; state.offline = res.offline;
+    renderAll();
+    syncMsg(res.offline ? 'Katalog teď není dostupný.' : `Načteno ${res.stations.length} stanic.`);
+  }
+});
 
 $('q').addEventListener('input', (e) => { state.q = e.target.value; renderList(); });
 $('pBtn').addEventListener('click', toggle);

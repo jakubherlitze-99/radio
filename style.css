@@ -80,3 +80,19 @@ h1 { margin: 0 20px; font-size: 30px; font-weight: 800; letter-spacing: -0.5px; 
 .handle { font-size: 26px; color: var(--sub); padding: 6px 4px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
 .mv { width: 38px; height: 38px; border-radius: 10px; background: #26304A; color: var(--text); font-size: 14px; flex: none; }
 .row.dragging { opacity: .85; border-color: var(--accent); box-shadow: 0 8px 24px rgba(0,0,0,.45); position: relative; z-index: 2; }
+.top { position: sticky; }
+.gear { position: absolute; top: calc(var(--st) + 12px); right: 14px; width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center; color: var(--text); background: var(--card); border: 1px solid var(--line); }
+.gear:active { opacity: .7; }
+.sheet { position: fixed; inset: 0; z-index: 50; background: rgba(5,8,15,.6); display: flex; align-items: flex-end; }
+.sheet[hidden] { display: none; }
+.sheetBox { width: 100%; background: #141B2B; border-top: 1px solid var(--line); border-radius: 22px 22px 0 0;
+  padding: 18px 18px calc(22px + var(--sb)); animation: up .2s ease-out; }
+@keyframes up { from { transform: translateY(40px); opacity: 0; } }
+.sheetHead { display: flex; align-items: center; justify-content: space-between; font-size: 20px; margin-bottom: 6px; }
+.sheetHead .x { font-size: 20px; color: var(--sub); width: 36px; height: 36px; }
+.sheetSec { color: var(--sub); font-size: 13px; text-transform: uppercase; letter-spacing: .08em; margin: 16px 0 8px; }
+.sheetNote { color: var(--sub); font-size: 14px; margin: 12px 0 0; }
+.sbtn.ghost { background: var(--card); color: var(--text); border: 1px solid var(--line); }
+.sbtn.wide { width: 100%; }
+.sheetBox small { color: var(--sub); display: block; margin-top: 6px; overflow-wrap: anywhere; min-height: 1em; }
