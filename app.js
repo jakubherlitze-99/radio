@@ -55,7 +55,7 @@ function altUrls(raw, item) {
     const n = normalize(s.name);
     return item.match.some((m) => hasWord(n, normalize(m))) && !(item.exclude || []).some((x) => hasWord(n, normalize(x)));
   }).sort((a, b) => (b.clickcount || 0) - (a.clickcount || 0)).map(playable);
-  return [...new Set([item.stream, ...urls].filter(Boolean))].slice(0, 4);
+  return [...new Set([item.stream, ...(item.alt || []), ...urls].filter(Boolean))].slice(0, 4);
 }
 
 const toStation = (s, extra = {}) => ({
@@ -338,8 +338,12 @@ const netInfo = () => {
 };
 
 // ---------- přehrávání: start okamžitě, hlídání výpadků, automatická oprava ----------
-const STALL_MS = 8000;        // jak dlouho tolerovat „načítám“, než se připojíme znovu
-const FREEZE_MS = 9000;       // zvuk „hraje“, ale čas se nehýbe → zamrzlý stream
+// Pozn.: na zamčeném iPhonu se nově navázaný stream nerozjede (iOS ho pustí až po odemknutí).
+// Proto na pozadí stream NEzahazujeme – necháme prohlížeč, ať se ze zaseknutí vzpamatuje sám,
+// jen ho „šťouchneme“ play(). Tvrdé nové připojení děláme v popředí, nebo když stream opravdu skončil.
+const STALL_MS = 20000;       // jak dlouho tolerovat „načítám“ v popředí, než se připojíme znovu
+const FREEZE_MS = 20000;      // zvuk „hraje“, ale čas se nehýbe → zamrzlý stream
+const hidden = () => document.visibilityState === 'hidden';
 const MAX_RETRIES = 6;
 
 let session = 0;              // id aktuálního přehrávání (přepnutí stanice ho zneplatní)
@@ -366,7 +370,12 @@ function connect(sid, reconnect) {
     reconnectOrFail(sid, 'play() selhalo');
   });
   clearTimeout(tuneTimer);
-  tuneTimer = setTimeout(() => { if (sid === session && state.phase !== 'playing') reconnectOrFail(sid, 'start trvá přes 15 s'); }, 15000);
+  const tuneCheck = () => {
+    if (sid !== session || state.phase === 'playing') return;
+    if (hidden()) { tuneTimer = setTimeout(tuneCheck, 15000); return; }   // dořeší se po odemknutí
+    reconnectOrFail(sid, 'start trvá přes 15 s');
+  };
+  tuneTimer = setTimeout(tuneCheck, 15000);
 }
 
 function reconnectOrFail(sid, reason) {
@@ -448,7 +457,17 @@ const onStall = (ev) => {
   setPhase('tuning', 'Načítám…');
   const sid = session;
   clearTimeout(stallTimer);
-  stallTimer = setTimeout(() => { if (sid === session && state.phase !== 'playing') reconnectOrFail(sid, `zaseknutí přes ${STALL_MS / 1000} s`); }, STALL_MS);
+  const check = () => {
+    if (sid !== session || state.phase === 'playing') return;
+    if (hidden()) {                       // na pozadí: nezahazovat, jen zkusit pokračovat
+      diag('zaseknutí trvá (na pozadí) – zkouším pokračovat bez odpojení');
+      audio.play().catch(() => {});
+      stallTimer = setTimeout(check, STALL_MS);
+      return;
+    }
+    reconnectOrFail(sid, `zaseknutí přes ${STALL_MS / 1000} s`);
+  };
+  stallTimer = setTimeout(check, STALL_MS);
 };
 audio.addEventListener('waiting', onStall);
 audio.addEventListener('stalled', onStall);
@@ -471,7 +490,11 @@ audio.addEventListener('error', () => {
 setInterval(() => {
   if (state.phase !== 'playing' || audio.paused) return;
   if (audio.currentTime > lastTime + 0.2) { lastTime = audio.currentTime; lastProgress = Date.now(); return; }
-  if (Date.now() - lastProgress > FREEZE_MS) { lastProgress = Date.now(); reconnectOrFail(session, 'stream zamrzl bez hlášení'); }
+  if (Date.now() - lastProgress > FREEZE_MS) {
+    lastProgress = Date.now();
+    if (hidden()) { diag('stream stojí (na pozadí) – zkouším pokračovat bez odpojení'); audio.play().catch(() => {}); }
+    else reconnectOrFail(session, 'stream zamrzl bez hlášení');
+  }
 }, 3000);
 
 // návrat internetu → hned znovu připojit
@@ -483,10 +506,17 @@ window.addEventListener('online', () => {
 });
 window.addEventListener('offline', () => diag('telefon ztratil internet'));
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.phase === 'playing' && audio.paused) {
-    diag('po návratu do aplikace přehrávání stálo → spouštím znovu');
-    reconnectOrFail(session, 'zastaveno na pozadí');
-  }
+  if (!state.current || userPaused) return;
+  if (hidden()) { if (state.phase === 'playing') diag('aplikace na pozadí / telefon zamčen'); return; }
+  diag('aplikace zpět v popředí');
+  const sid = session, t0 = audio.currentTime;
+  // ověřit za 1,5 s, jestli zvuk opravdu postupuje; když ne, rychle znovu připojit
+  setTimeout(() => {
+    if (sid !== session || userPaused || hidden()) return;
+    const moving = !audio.paused && audio.currentTime > t0 + 0.3;
+    if (moving) { lastTime = audio.currentTime; lastProgress = Date.now(); if (state.phase !== 'playing') setPhase('playing'); return; }
+    if (state.phase === 'playing' || state.phase === 'tuning') { retries = 0; reconnectOrFail(sid, 'po odemknutí stream nehrál'); }
+  }, 1500);
 });
 
 function updateMediaSession() {

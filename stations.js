@@ -23,7 +23,7 @@ export const CURATED = [
   // Povídky, rozhlasové hry & humor (also = zobrazit i v dalším žánru)
   { id: 'povidka', name: 'Rádio Povídka', genre: 'spoken', stream: 'https://ice3.abradio.cz/povidka128.mp3', match: ['povidka'] },
   { id: 'humor', name: 'Rádio Humor', genre: 'spoken', stream: 'https://playerservices.streamtheworld.com/api/livestream-redirect/RADIO_HUMOR.aac', match: ['radio humor', 'humor 2'] },
-  { id: 'diana', name: 'Comedy Club Rádio Diana', genre: 'spoken', stream: 'https://westradio.cz/radio/8010/radio.mp3', match: ['diana'] },
+  { id: 'diana', name: 'Comedy Club Rádio Diana', genre: 'spoken', stream: 'https://westradio.cz/listen/comedy_club/radio.mp3', alt: ['https://westradio.cz/radio/8010/radio.mp3'], match: ['comedy club'] },
 
   // Zprávy & mluvené slovo
   { id: 'cro-radiozurnal', name: 'ČRo Radiožurnál', genre: 'news', stream: 'https://rozhlas.stream/radiozurnal_mp3_128.mp3', match: ['radiozurnal'], exclude: ['sport'] },
@@ -54,6 +54,7 @@ export const CURATED = [
 
   // Oldies & retro
   { id: 'blanik', name: 'Rádio Blaník', genre: 'oldies', match: ['blanik'] },
+  { id: 'retro-diana', name: 'Retro Club Rádio Diana', genre: 'oldies', stream: 'https://westradio.cz/listen/retro_club/radio.mp3', match: ['retro club'] },
   { id: 'oldies', name: 'Oldies Rádio', genre: 'oldies', match: ['oldies radio', 'oldiesradio'] },
   { id: 'cro-pohoda', name: 'ČRo Pohoda', genre: 'oldies', stream: 'https://rozhlas.stream/pohoda.mp3', match: ['pohoda'] },
 
