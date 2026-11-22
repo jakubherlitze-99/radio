@@ -460,7 +460,7 @@ const onStall = (ev) => {
   const check = () => {
     if (sid !== session || state.phase === 'playing') return;
     if (hidden()) {                       // na pozadí: nezahazovat, jen zkusit pokračovat
-      diag('zaseknutí trvá (na pozadí) – zkouším pokračovat bez odpojení');
+      diag('zaseknutí trvá (na pozadí) – zkouším pokračovat; na zamčené obrazovce lze klepnout ▶');
       audio.play().catch(() => {});
       stallTimer = setTimeout(check, STALL_MS);
       return;
@@ -531,7 +531,12 @@ function updateMediaSession() {
 }
 if ('mediaSession' in navigator) {
   try {
-    navigator.mediaSession.setActionHandler('play', () => toggle());
+    // ▶ na zamčené obrazovce = vždy nové připojení (klepnutí iOS povolí rozjet i zamrzlý stream)
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (!state.current) return;
+      diag('▶ ze zamčené obrazovky – nové připojení');
+      play(state.stations.find((s) => s.id === state.current.id) || state.current);
+    });
     navigator.mediaSession.setActionHandler('pause', () => stop());
     navigator.mediaSession.setActionHandler('stop', () => stop());
   } catch {}
