@@ -203,21 +203,17 @@ function installHint() {
     <b>Tip:</b> V Safari klepni na <b>Sdílet</b> (čtvereček se šipkou) → <b>Přidat na plochu</b>. Rádia pak otevřeš jako appku.</div>`;
 }
 
-// ---------- přehrávání (se zásobníkem a automatickým obnovením spojení) ----------
-const PREBUFFER_BASE = 4;   // s – zásobník před spuštěním
-const PREBUFFER_STEP = 3;   // s – o kolik zvětšit po každém zaseknutí
-const PREBUFFER_MAX = 12;   // s – strop zásobníku
+// ---------- přehrávání: start okamžitě, zásobník se plní za běhu, při výpadku obnovení spojení ----------
 const STALL_MS = 8000;      // jak dlouho tolerovat zaseknutí, než se připojíme znovu
 const MAX_RETRIES = 4;
 
 let session = 0;            // id aktuálního přehrávání (přepnutí stanice ho zneplatní)
 let currentUrl = null;
-let retries = 0, stalls = 0;
-let buffering = false, internalPause = false;
-let stallTimer = null, bufferTimer = null, retryTimer = null;
+let retries = 0;
+let stallTimer = null, retryTimer = null;
 
 function clearTimers() {
-  clearTimeout(tuneTimer); clearTimeout(stallTimer); clearTimeout(retryTimer); clearInterval(bufferTimer);
+  clearTimeout(tuneTimer); clearTimeout(stallTimer); clearTimeout(retryTimer);
 }
 
 // kolik sekund zvuku je stažených dopředu
@@ -229,9 +225,7 @@ function bufferedAhead() {
 
 function connect(sid, reconnect) {
   const url = reconnect ? currentUrl + (currentUrl.includes('?') ? '&' : '?') + '_=' + Date.now() : currentUrl;
-  buffering = true;
-  internalPause = false;
-  audio.muted = true;                     // během plnění zásobníku potichu
+  audio.preload = 'auto';
   audio.src = url;
   audio.play().catch((e) => {
     if (sid !== session || (e && e.name === 'AbortError')) return;
@@ -245,45 +239,19 @@ function reconnectOrFail(sid) {
   if (sid !== session) return;
   clearTimers();
   if (retries >= MAX_RETRIES) {
-    audio.pause(); audio.muted = false;
+    audio.pause();
     return setPhase('error', 'Stanice teď nevysílá.');
   }
   retries++;
-  stalls++;
   setPhase('tuning', 'Obnovuji spojení…');
-  retryTimer = setTimeout(() => { if (sid === session) connect(sid, true); }, 800 * retries);
-}
-
-// po prvních datech na chvíli pozastavit a nechat stream naplnit zásobník
-function startPrebuffer() {
-  const sid = session;
-  const target = Math.min(PREBUFFER_BASE + stalls * PREBUFFER_STEP, PREBUFFER_MAX);
-  internalPause = true;
-  audio.pause();
-  setPhase('tuning', 'Plním zásobník…');
-  const t0 = Date.now();
-  let last = bufferedAhead(), lastGrow = t0;
-  clearInterval(bufferTimer);
-  bufferTimer = setInterval(() => {
-    if (sid !== session) return clearInterval(bufferTimer);
-    const ahead = bufferedAhead();
-    if (ahead > last + 0.2) { last = ahead; lastGrow = Date.now(); }
-    const done = ahead >= target                       // zásobník plný
-      || Date.now() - lastGrow > 1500                  // prohlížeč během pauzy nestahuje → nečekat
-      || Date.now() - t0 > target * 1000 + 2000;       // pojistka
-    if (!done) return;
-    clearInterval(bufferTimer);
-    buffering = false;
-    internalPause = false;
-    audio.muted = false;
-    audio.play().catch(() => reconnectOrFail(sid));
-  }, 250);
+  // první pokus hned, další s rostoucím odstupem
+  retryTimer = setTimeout(() => { if (sid === session) connect(sid, true); }, retries === 1 ? 0 : 1000 * (retries - 1));
 }
 
 async function play(st) {
   clearTimers();
   const sid = ++session;
-  retries = 0; stalls = 0;
+  retries = 0;
   state.current = st;
   store.set('last-station-v1', st);
   setPhase('tuning');
@@ -306,9 +274,7 @@ async function play(st) {
 function stop() {
   session++;
   clearTimers();
-  buffering = false; internalPause = false;
   audio.pause();
-  audio.muted = false;
   audio.removeAttribute('src');
   audio.load();
   setPhase('paused');
@@ -322,12 +288,11 @@ function toggle() {
 
 audio.addEventListener('playing', () => {
   clearTimeout(stallTimer); clearTimeout(tuneTimer);
-  if (buffering) return startPrebuffer();
   retries = 0;
   setPhase('playing');
 });
 const onStall = () => {
-  if (state.phase !== 'playing' || internalPause) return;
+  if (state.phase !== 'playing') return;
   setPhase('tuning', 'Načítám…');
   const sid = session;
   clearTimeout(stallTimer);
@@ -336,7 +301,7 @@ const onStall = () => {
 audio.addEventListener('waiting', onStall);
 audio.addEventListener('stalled', onStall);
 audio.addEventListener('ended', () => { if (audio.getAttribute('src') && state.phase !== 'paused') reconnectOrFail(session); });
-audio.addEventListener('pause', () => { if (!internalPause && state.phase === 'playing') { clearTimers(); setPhase('paused'); } });
+audio.addEventListener('pause', () => { if (state.phase === 'playing') { clearTimers(); setPhase('paused'); } });
 audio.addEventListener('error', () => {
   if (audio.getAttribute('src') && state.phase !== 'paused' && state.phase !== 'error') reconnectOrFail(session);
 });
