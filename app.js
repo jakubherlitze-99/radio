@@ -48,6 +48,15 @@ function pickBest(raw, item, needUrl = true) {
   hits.sort((a, b) => (b.clickcount || 0) - (a.clickcount || 0));
   return hits[0];
 }
+// všechny přehratelné adresy stejné stanice (pro přepnutí při výpadku)
+function altUrls(raw, item) {
+  const urls = raw.filter((s) => {
+    if (!playable(s)) return false;
+    const n = normalize(s.name);
+    return item.match.some((m) => hasWord(n, normalize(m))) && !(item.exclude || []).some((x) => hasWord(n, normalize(x)));
+  }).sort((a, b) => (b.clickcount || 0) - (a.clickcount || 0)).map(playable);
+  return [...new Set([item.stream, ...urls].filter(Boolean))].slice(0, 4);
+}
 
 const toStation = (s, extra = {}) => ({
   id: s.stationuuid, uuid: s.stationuuid, name: (s.name || '').trim(),
@@ -80,6 +89,7 @@ async function loadCatalog(force) {
     const st = b ? toStation(b, { id: c.id, name: c.name, genre: c.genre, also: c.also, curated: true })
                  : { ...c, curated: true, url: null };
     if (c.stream) { st.url = c.stream; st.bitrate = st.bitrate || 128; }
+    st.alts = altUrls(raw, c);
     return st;
   });
   const seen = new Set(curated.map((c) => normalize(c.name)));
@@ -250,7 +260,24 @@ function renderSheet() {
     <small id="syncMsg">${esc(state.syncMsg || '')}</small>
     <div class="sheetSec">Stanice</div>
     <button class="sbtn ghost wide" data-refresh>⟳ Obnovit seznam stanic</button>
+    <div class="sheetSec">Diagnostika přehrávání</div>
+    <p class="sheetNote" style="margin-top:0">${diagSummary()}</p>
+    <pre class="diag">${esc(diagLog.slice(-40).reverse().map((l) => l.replace(todayPrefix(), '')).join('\n') || 'Zatím žádné záznamy.')}</pre>
+    <div class="syncBtns">
+      <button class="sbtn ghost" data-diag-copy ${diagLog.length ? '' : 'disabled'}>Zkopírovat záznam</button>
+      <button class="sbtn ghost" data-diag-clear ${diagLog.length ? '' : 'disabled'}>Vymazat</button>
+    </div>
   </div>`;
+}
+const todayPrefix = () => new Date().toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' }) + ' ';
+function diagSummary() {
+  const today = new Date().toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' });
+  const todays = diagLog.filter((l) => l.startsWith(today + ' '));
+  const outages = todays.filter((l) => l.includes('výpadek')).length;
+  const fixed = todays.filter((l) => l.includes('po ') && l.includes('. pokusu')).length;
+  const gaveUp = todays.filter((l) => l.includes('VZDÁNO')).length;
+  if (!outages) return 'Dnes bez výpadků. Aplikace si zapisuje, co se se streamem děje, a výpadky opravuje sama.';
+  return `Dnes ${outages}× výpadek, ${fixed}× automaticky opraveno${gaveUp ? `, ${gaveUp}× se nepodařilo` : ''}.`;
 }
 function openSheet() { state.syncMsg = ''; renderSheet(); $('sheet').hidden = false; }
 function closeSheet() { $('sheet').hidden = true; }
@@ -291,55 +318,86 @@ function installHint() {
     <b>Tip:</b> V Safari klepni na <b>Sdílet</b> (čtvereček se šipkou) → <b>Přidat na plochu</b>. Rádia pak otevřeš jako appku.</div>`;
 }
 
-// ---------- přehrávání: start okamžitě, zásobník se plní za běhu, při výpadku obnovení spojení ----------
-const STALL_MS = 8000;      // jak dlouho tolerovat zaseknutí, než se připojíme znovu
-const MAX_RETRIES = 4;
+// ---------- diagnostika: záznam událostí přehrávání (jen v tomto zařízení) ----------
+const DIAG_KEY = 'diag-log-v1';
+let diagLog = store.get(DIAG_KEY, []);
+let diagSaveT = null;
+function diag(msg) {
+  const d = new Date();
+  const ts = d.toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' }) + ' ' + d.toLocaleTimeString('cs-CZ');
+  diagLog.push(ts + '  ' + msg);
+  if (diagLog.length > 300) diagLog = diagLog.slice(-300);
+  clearTimeout(diagSaveT);
+  diagSaveT = setTimeout(() => store.set(DIAG_KEY, diagLog), 500);
+}
+const host = (u) => { try { return new URL(u).host; } catch { return '?'; } };
+const MEDIA_ERR = { 1: 'přerušeno', 2: 'chyba sítě', 3: 'chyba dekódování', 4: 'formát/adresa nepodporována' };
+const netInfo = () => {
+  const c = navigator.connection;
+  return (navigator.onLine ? 'online' : 'OFFLINE') + (c && c.effectiveType ? ' ' + c.effectiveType : '');
+};
 
-let session = 0;            // id aktuálního přehrávání (přepnutí stanice ho zneplatní)
-let currentUrl = null;
+// ---------- přehrávání: start okamžitě, hlídání výpadků, automatická oprava ----------
+const STALL_MS = 8000;        // jak dlouho tolerovat „načítám“, než se připojíme znovu
+const FREEZE_MS = 9000;       // zvuk „hraje“, ale čas se nehýbe → zamrzlý stream
+const MAX_RETRIES = 6;
+
+let session = 0;              // id aktuálního přehrávání (přepnutí stanice ho zneplatní)
+let urls = [], urlIdx = 0;    // hlavní + záložní adresy stanice
 let retries = 0;
 let stallTimer = null, retryTimer = null;
+let userPaused = false;
+let lastTime = 0, lastProgress = 0, startedAt = 0;
 
-function clearTimers() {
-  clearTimeout(tuneTimer); clearTimeout(stallTimer); clearTimeout(retryTimer);
-}
-
-// kolik sekund zvuku je stažených dopředu
-function bufferedAhead() {
-  const b = audio.buffered, t = audio.currentTime;
-  for (let i = b.length - 1; i >= 0; i--) if (b.start(i) <= t + 0.5) return Math.max(0, b.end(i) - t);
-  return 0;
-}
+const currentUrl = () => urls[urlIdx];
+function clearTimers() { clearTimeout(tuneTimer); clearTimeout(stallTimer); clearTimeout(retryTimer); }
 
 function connect(sid, reconnect) {
-  const url = reconnect ? currentUrl + (currentUrl.includes('?') ? '&' : '?') + '_=' + Date.now() : currentUrl;
+  const base = currentUrl();
+  const url = reconnect ? base + (base.includes('?') ? '&' : '?') + '_=' + Date.now() : base;
+  startedAt = Date.now();
   audio.preload = 'auto';
   audio.src = url;
   audio.play().catch((e) => {
     if (sid !== session || (e && e.name === 'AbortError')) return;
-    if (reconnect) reconnectOrFail(sid); else { clearTimers(); setPhase('error', 'Stanici nelze přehrát.'); }
+    diag(`play() odmítnuto: ${e && e.name}`);
+    if (e && e.name === 'NotAllowedError') { clearTimers(); return setPhase('paused'); } // iOS chce klepnutí
+    if (audio.error) return;                 // chybu už řeší událost „error“
+    reconnectOrFail(sid, 'play() selhalo');
   });
   clearTimeout(tuneTimer);
-  tuneTimer = setTimeout(() => { if (sid === session && state.phase !== 'playing') reconnectOrFail(sid); }, 15000);
+  tuneTimer = setTimeout(() => { if (sid === session && state.phase !== 'playing') reconnectOrFail(sid, 'start trvá přes 15 s'); }, 15000);
 }
 
-function reconnectOrFail(sid) {
+function reconnectOrFail(sid, reason) {
   if (sid !== session) return;
   clearTimers();
+  // bez internetu nemá smysl zkoušet – počkáme na událost „online“
+  if (!navigator.onLine) {
+    diag(`výpadek (${reason}) – telefon je offline, čekám na připojení`);
+    return setPhase('tuning', 'Čekám na internet…');
+  }
   if (retries >= MAX_RETRIES) {
+    diag(`VZDÁNO po ${retries} pokusech (${reason})`);
     audio.pause();
     return setPhase('error', 'Stanice teď nevysílá.');
   }
   retries++;
+  // po 2 neúspěších na stejné adrese zkusit záložní stream
+  if (retries > 2 && urls.length > 1 && retries % 2 === 1) {
+    urlIdx = (urlIdx + 1) % urls.length;
+    diag(`přepínám na záložní stream ${urlIdx + 1}/${urls.length}: ${host(currentUrl())}`);
+  }
+  const delay = retries === 1 ? 0 : Math.min(1000 * (retries - 1), 5000);
+  diag(`výpadek: ${reason} → nové připojení #${retries} za ${delay / 1000} s [${netInfo()}]`);
   setPhase('tuning', 'Obnovuji spojení…');
-  // první pokus hned, další s rostoucím odstupem
-  retryTimer = setTimeout(() => { if (sid === session) connect(sid, true); }, retries === 1 ? 0 : 1000 * (retries - 1));
+  retryTimer = setTimeout(() => { if (sid === session) connect(sid, true); }, delay);
 }
 
 async function play(st) {
   clearTimers();
   const sid = ++session;
-  retries = 0;
+  retries = 0; userPaused = false;
   state.current = st;
   store.set('last-station-v1', st);
   setPhase('tuning');
@@ -352,15 +410,18 @@ async function play(st) {
     } catch {}
   }
   if (sid !== session) return;            // mezitím vybrána jiná stanice
-  if (!target.url) return setPhase('error', 'Stream se nepodařilo najít.');
+  if (!target.url) { diag(`${st.name}: stream nenalezen`); return setPhase('error', 'Stream se nepodařilo najít.'); }
 
-  currentUrl = target.url;
+  urls = [...new Set([target.url, ...(target.alts || [])])];
+  urlIdx = 0;
+  diag(`▶ ${st.name} (${host(urls[0])}${urls.length > 1 ? `, záloh ${urls.length - 1}` : ''}) [${netInfo()}]`);
   connect(sid, false);
   if (target.uuid) apiGet('/json/url/' + target.uuid).catch(() => {});
 }
 
 function stop() {
   session++;
+  userPaused = true;
   clearTimers();
   audio.pause();
   audio.removeAttribute('src');
@@ -376,22 +437,56 @@ function toggle() {
 
 audio.addEventListener('playing', () => {
   clearTimeout(stallTimer); clearTimeout(tuneTimer);
+  if (state.phase !== 'playing') diag(`hraje (za ${((Date.now() - startedAt) / 1000).toFixed(1)} s${retries ? `, po ${retries}. pokusu` : ''})`);
   retries = 0;
+  lastTime = audio.currentTime; lastProgress = Date.now();
   setPhase('playing');
 });
-const onStall = () => {
+const onStall = (ev) => {
   if (state.phase !== 'playing') return;
+  diag(`stream se zasekl (${ev.type}) [${netInfo()}]`);
   setPhase('tuning', 'Načítám…');
   const sid = session;
   clearTimeout(stallTimer);
-  stallTimer = setTimeout(() => { if (sid === session && state.phase !== 'playing') reconnectOrFail(sid); }, STALL_MS);
+  stallTimer = setTimeout(() => { if (sid === session && state.phase !== 'playing') reconnectOrFail(sid, `zaseknutí přes ${STALL_MS / 1000} s`); }, STALL_MS);
 };
 audio.addEventListener('waiting', onStall);
 audio.addEventListener('stalled', onStall);
-audio.addEventListener('ended', () => { if (audio.getAttribute('src') && state.phase !== 'paused') reconnectOrFail(session); });
-audio.addEventListener('pause', () => { if (state.phase === 'playing') { clearTimers(); setPhase('paused'); } });
+audio.addEventListener('ended', () => {
+  if (audio.getAttribute('src') && state.phase !== 'paused') reconnectOrFail(session, 'server ukončil stream');
+});
+audio.addEventListener('pause', () => {
+  if (state.phase !== 'playing' || audio.ended) return;   // konec streamu řeší „ended“
+  clearTimers();
+  diag(userPaused ? 'pozastaveno uživatelem' : 'pozastaveno systémem (hovor, jiná aplikace, sluchátka…)');
+  setPhase('paused');
+});
 audio.addEventListener('error', () => {
-  if (audio.getAttribute('src') && state.phase !== 'paused' && state.phase !== 'error') reconnectOrFail(session);
+  if (!audio.getAttribute('src') || state.phase === 'paused' || state.phase === 'error') return;
+  const err = audio.error;
+  reconnectOrFail(session, `chyba přehrávače: ${err ? MEDIA_ERR[err.code] || err.code : '?'}`);
+});
+
+// hlídač: zvuk se tváří, že hraje, ale stream stojí (iOS to občas nehlásí)
+setInterval(() => {
+  if (state.phase !== 'playing' || audio.paused) return;
+  if (audio.currentTime > lastTime + 0.2) { lastTime = audio.currentTime; lastProgress = Date.now(); return; }
+  if (Date.now() - lastProgress > FREEZE_MS) { lastProgress = Date.now(); reconnectOrFail(session, 'stream zamrzl bez hlášení'); }
+}, 3000);
+
+// návrat internetu → hned znovu připojit
+window.addEventListener('online', () => {
+  diag('internet je zpět');
+  if (state.current && (state.phase === 'tuning' || state.phase === 'error') && !userPaused) {
+    retries = 0; reconnectOrFail(session, 'obnova po výpadku internetu');
+  }
+});
+window.addEventListener('offline', () => diag('telefon ztratil internet'));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.phase === 'playing' && audio.paused) {
+    diag('po návratu do aplikace přehrávání stálo → spouštím znovu');
+    reconnectOrFail(session, 'zastaveno na pozadí');
+  }
 });
 
 function updateMediaSession() {
@@ -502,6 +597,13 @@ $('sheet').addEventListener('click', async (e) => {
     renderChips(); renderList(); window.scrollTo({ top: 0 });
     return;
   }
+  if (e.target.closest('[data-diag-copy]')) {
+    const text = 'Česká rádia – diagnostika\n' + navigator.userAgent + '\n\n' + diagLog.join('\n');
+    try { await navigator.clipboard.writeText(text); syncMsg('Záznam zkopírován – můžeš ho vložit Claudovi.'); }
+    catch { try { await navigator.share({ title: 'Diagnostika rádia', text }); } catch {} }
+    return;
+  }
+  if (e.target.closest('[data-diag-clear]')) { diagLog = []; store.set(DIAG_KEY, []); return renderSheet(); }
   if (e.target.closest('[data-refresh]')) {
     syncMsg('Načítám katalog…');
     const res = await loadCatalog(true);

@@ -96,3 +96,6 @@ h1 { margin: 0 20px; font-size: 30px; font-weight: 800; letter-spacing: -0.5px; 
 .sbtn.ghost { background: var(--card); color: var(--text); border: 1px solid var(--line); }
 .sbtn.wide { width: 100%; }
 .sheetBox small { color: var(--sub); display: block; margin-top: 6px; overflow-wrap: anywhere; min-height: 1em; }
+.diag { background: #0B111D; border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin: 8px 0 10px;
+  max-height: 180px; overflow: auto; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: #B8C2DA; white-space: pre-wrap; }
+.sheetBox { max-height: 88vh; overflow-y: auto; }
